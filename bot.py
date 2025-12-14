@@ -2,11 +2,9 @@
 Financial Bot - Uses Mistral AI API for financial information and calculations
 This bot provides educational information about finance and investing.
 """
-import requests
-import json
 import re
 from typing import Optional, Dict, Any
-from config import MISTRAL_API_KEY, MISTRAL_MODEL, MISTRAL_API_URL
+from config import MISTRAL_API_KEY, MISTRAL_MODEL
 
 # ============================================================================
 # DISCLAIMER
@@ -38,40 +36,31 @@ class FinancialBot:
     def __init__(self):
         self.api_key = MISTRAL_API_KEY
         self.model = MISTRAL_MODEL
-        self.api_url = MISTRAL_API_URL
         self.conversation_history = []
         
     def _call_mistral_api(self, user_message: str) -> Optional[str]:
-        """Call Mistral AI API with OpenAI-compatible format"""
+        """Call Mistral AI API using the official SDK"""
         try:
+            from mistralai import Mistral
+            
             # Add user message to history
             self.conversation_history.append({
                 "role": "user",
                 "content": user_message
             })
             
-            # Prepare the request
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "model": self.model,
-                "messages": self.conversation_history,
-                "temperature": 0.7,
-                "max_tokens": 1024,
-            }
-            
-            # Call the API
-            response = requests.post(self.api_url, headers=headers, json=payload, timeout=30)
-            response.raise_for_status()
-            
-            result = response.json()
+            # Call the API using official SDK
+            client = Mistral(api_key=self.api_key)
+            response = client.chat.complete(
+                model=self.model,
+                messages=self.conversation_history,
+                temperature=0.7,
+                max_tokens=1024,
+            )
             
             # Extract the assistant's response
-            if 'choices' in result and len(result['choices']) > 0:
-                assistant_message = result['choices'][0]['message']['content']
+            if response.choices and len(response.choices) > 0:
+                assistant_message = response.choices[0].message.content
                 
                 # Add assistant response to history for context
                 self.conversation_history.append({
@@ -85,14 +74,16 @@ class FinancialBot:
                 
                 return assistant_message
             else:
-                return "Error: Could not parse API response"
+                return "Error: Could not get response from API"
                 
-        except requests.exceptions.RequestException as e:
-            return f"API Error: {str(e)}"
-        except json.JSONDecodeError:
-            return "Error: Could not parse JSON response from API"
         except Exception as e:
-            return f"Unexpected error: {str(e)}"
+            error_msg = str(e)
+            if "401" in error_msg or "Unauthorized" in error_msg:
+                return "❌ API Error: Invalid or expired API key. Please check your .env file.\n   Visit: https://console.mistral.ai/ to verify your API key."
+            elif "timeout" in error_msg.lower():
+                return "❌ API Error: Request timed out. Check your internet connection."
+            else:
+                return f"❌ API Error: {error_msg}"
     
     def calculate_percentage_return(self, buy_price: float, sell_price: float) -> str:
         """Calculate percentage return on investment"""
